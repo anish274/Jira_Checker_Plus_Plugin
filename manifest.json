@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Jira Checker Plus",
+  "version": "0.3.0",
+  "description": "Validates Jira issues and highlights missing or inconsistent information",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["*://*.atlassian.net/*", "*://*/jira/*", "*://*/browse/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.atlassian.net/browse/*", "*://*/jira/browse/*", "*://*/browse/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/jira-28.png",
+    "48": "icons/jira-56.png",
+    "128": "icons/jira-56.png"
+  }
+}
