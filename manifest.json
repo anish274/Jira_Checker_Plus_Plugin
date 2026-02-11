@@ -5,6 +5,7 @@
   "description": "Validates Jira issues and highlights missing or inconsistent information",
   "permissions": ["activeTab", "storage"],
   "host_permissions": ["*://*.atlassian.net/*", "*://*/jira/*", "*://*/browse/*"],
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["*://*.atlassian.net/browse/*", "*://*/jira/browse/*", "*://*/browse/*"],

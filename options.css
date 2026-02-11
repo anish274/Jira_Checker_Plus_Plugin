@@ -1,0 +1,189 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: #f4f5f7;
+  margin: 0;
+  padding: 20px;
+}
+
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+  background: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+  color: #172b4d;
+  margin-top: 0;
+  font-size: 24px;
+}
+
+h2 {
+  color: #42526e;
+  font-size: 16px;
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.section {
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #dfe1e6;
+}
+
+.section:last-of-type {
+  border-bottom: none;
+}
+
+.note {
+  color: #6b778c;
+  font-size: 13px;
+  margin: 0 0 16px 0;
+  font-style: italic;
+}
+
+.mandatory-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mandatory-list li {
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: #f4f5f7;
+  border-left: 3px solid #0052cc;
+  border-radius: 3px;
+  font-size: 13px;
+  color: #172b4d;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.checkbox-label:hover {
+  background: #f4f5f7;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-right: 12px;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  color: #172b4d;
+  font-size: 14px;
+}
+
+.input-label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.input-label span {
+  color: #172b4d;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.input-label input[type="number"],
+.input-label input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #172b4d;
+}
+
+.input-label input:focus {
+  outline: none;
+  border-color: #0052cc;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#save-btn {
+  background: #0052cc;
+  color: #fff;
+}
+
+#save-btn:hover {
+  background: #0747a6;
+}
+
+#reset-btn {
+  background: #f4f5f7;
+  color: #42526e;
+}
+
+#reset-btn:hover {
+  background: #dfe1e6;
+}
+
+.status-msg {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  display: none;
+}
+
+.status-msg.show {
+  display: block;
+}
+
+.status-msg.success {
+  background: #e3fcef;
+  color: #006644;
+  border: 1px solid #79f2c0;
+}
+
+.credits {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #dfe1e6;
+  text-align: center;
+}
+
+.credits p {
+  color: #6b778c;
+  font-size: 13px;
+  margin: 0;
+}
+
+.credits a {
+  color: #0052cc;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.credits a:hover {
+  text-decoration: underline;
+}

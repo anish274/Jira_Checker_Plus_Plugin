@@ -10,11 +10,12 @@
     ASSIGNEE_MISSING: 'Assignee not assigned',
     PRIORITY_MISSING: 'Priority not set',
     FINANCIAL_CATEGORY_MISSING: 'Financial Category is missing',
-    STORY_POINTS_MISSING: 'Story points not estimated (required for Stories)',
-    ORIGINAL_ESTIMATE_MISSING: 'Original Estimate missing (required for Sub-tasks)',
-    TIME_LOGGED_IN_EPIC_STORY: 'Time logged in Epic/Story (only allowed in Sub-tasks and Bugs)',
+    STORY_POINTS_MISSING: 'Story points not estimated.',
+    ORIGINAL_ESTIMATE_MISSING: 'Original Estimate missing.',
+    TIME_LOGGED_IN_EPIC_STORY: 'Time log now allowed in Epic/Story (only in Sub-tasks and Bugs)',
     TIME_LOGGED_IN_TODO: 'Time logged but issue still in To Do status',
-    SUBTASK_100_PERCENT_IN_PROGRESS: 'Sub-task 100% logged - still open'
+    SUBTASK_100_PERCENT_IN_PROGRESS: 'Sub-task 100% logged - still open',
+    STORY_NO_SUBTASKS: 'Story status beyond NEW but no Sub-tasks linked'
   };
 
   const STATUS_TODO = ['to do', 'backlog', 'open'];
@@ -28,6 +29,16 @@
   let isPanelOpen = false;
   let currentIssueKey = null;
   let currentIssues = [];
+  let settings = {
+    descSubtask: false,
+    descEpic: false,
+    descTask: false,
+    assigneeEpic: false,
+    priorityEpic: false,
+    weeklyHours: 40,
+    timelogMessage: 'Please log your hours for this week!',
+    timesheetMessage: 'Please submit your timesheet for this month!'
+  };
 
   // ============================================================================
   // API SERVICE
@@ -67,6 +78,28 @@
     getIssueKeyFromURL() {
       const match = window.location.pathname.match(/([A-Z]+-\d+)/);
       return match ? match[1] : null;
+    },
+
+    async getTempoWeeklyHours() {
+      try {
+        const now = new Date();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+        const from = startOfWeek.toISOString().split('T')[0];
+        const to = endOfWeek.toISOString().split('T')[0];
+
+        const response = await fetch(`/rest/tempo-timesheets/4/worklogs?dateFrom=${from}&dateTo=${to}`);
+        if (!response.ok) return 0;
+        
+        const data = await response.json();
+        const totalSeconds = data.reduce((sum, log) => sum + (log.timeSpentSeconds || 0), 0);
+        return totalSeconds / 3600;
+      } catch (e) {
+        return 0;
+      }
     }
   };
 
@@ -125,16 +158,35 @@
       const status = DataExtractor.getStatus(fields);
       const prefix = issueKey ? `[${issueKey}] ` : '';
 
+      // Description validation with settings
       if (!DataExtractor.hasDescription(fields)) {
-        issues.push(prefix + VALIDATION_RULES.DESCRIPTION_MISSING);
+        const isStoryOrBug = issueType.includes('story') || issueType.includes('bug');
+        const isSubtask = issueType.includes('sub');
+        const isEpic = issueType.includes('epic');
+        const isTask = issueType.includes('task') && !isSubtask;
+        
+        if (isStoryOrBug || 
+            (isSubtask && settings.descSubtask) ||
+            (isEpic && settings.descEpic) ||
+            (isTask && settings.descTask)) {
+          issues.push(prefix + VALIDATION_RULES.DESCRIPTION_MISSING);
+        }
       }
 
+      // Assignee validation with settings
       if (!DataExtractor.hasAssignee(fields)) {
-        issues.push(prefix + VALIDATION_RULES.ASSIGNEE_MISSING);
+        const isEpic = issueType.includes('epic');
+        if (!isEpic || settings.assigneeEpic) {
+          issues.push(prefix + VALIDATION_RULES.ASSIGNEE_MISSING);
+        }
       }
 
+      // Priority validation with settings
       if (!DataExtractor.hasPriority(fields)) {
-        issues.push(prefix + VALIDATION_RULES.PRIORITY_MISSING);
+        const isEpic = issueType.includes('epic');
+        if (!isEpic || settings.priorityEpic) {
+          issues.push(prefix + VALIDATION_RULES.PRIORITY_MISSING);
+        }
       }
 
       // Financial Category required for Story, Task, Bug, and Sub-task only
@@ -146,7 +198,7 @@
       }
 
       if (issueType.includes('story') && !issueType.includes('sub')) {
-        if (!DataExtractor.getStoryPoints(fields)) {
+        if (!status.includes('new') && !DataExtractor.getStoryPoints(fields)) {
           issues.push(prefix + VALIDATION_RULES.STORY_POINTS_MISSING);
         }
       }
@@ -182,6 +234,7 @@
       const issues = [];
       const fields = apiData.fields;
       const issueType = DataExtractor.getIssueType(fields);
+      const status = DataExtractor.getStatus(fields);
 
       // Validate current issue
       issues.push(...this.validateSingleIssue(fields));
@@ -198,6 +251,12 @@
       // If Story, validate all subtasks
       if (issueType.includes('story') && !issueType.includes('sub')) {
         const subtasks = await JiraAPI.getSubtasks(issueKey);
+        
+        // Check if Story beyond NEW has no subtasks
+        if (!status.includes('new') && subtasks.length === 0) {
+          issues.push(VALIDATION_RULES.STORY_NO_SUBTASKS);
+        }
+        
         for (const subtask of subtasks) {
           const subtaskIssues = this.validateSingleIssue(subtask.fields, subtask.key);
           issues.push(...subtaskIssues);
@@ -205,6 +264,80 @@
       }
 
       return issues;
+    }
+  };
+
+  // ============================================================================
+  // TEMPO TIMESHEET MANAGER
+  // ============================================================================
+  const TempoManager = {
+    isFriday() {
+      return new Date().getDay() === 5;
+    },
+
+    isLastWorkingDayOfMonth() {
+      const now = new Date();
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      
+      // Find last working day (skip weekends)
+      while (lastDay.getDay() === 0 || lastDay.getDay() === 6) {
+        lastDay.setDate(lastDay.getDate() - 1);
+      }
+      
+      return now.getDate() === lastDay.getDate() && now.getMonth() === lastDay.getMonth();
+    },
+
+    async isTimesheetSubmitted() {
+      try {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        
+        const response = await fetch(`/rest/tempo-timesheets/4/timesheet-approval/current-user/${year}/${month}`);
+        if (!response.ok) return false;
+        
+        const data = await response.json();
+        return data.status === 'APPROVED' || data.status === 'SUBMITTED';
+      } catch (e) {
+        return false;
+      }
+    },
+
+    async checkAndApplyFadeEffect() {
+      const messages = [];
+
+      // Check Friday hours
+      if (this.isFriday()) {
+        const loggedHours = await JiraAPI.getTempoWeeklyHours();
+        const requiredHours = settings.weeklyHours;
+        
+        if (loggedHours < requiredHours) {
+          messages.push(`⏰ ${settings.timelogMessage} - Logged: ${loggedHours.toFixed(1)}h / ${requiredHours}h this week`);
+        }
+      }
+
+      // Check last working day timesheet submission
+      if (this.isLastWorkingDayOfMonth()) {
+        const submitted = await this.isTimesheetSubmitted();
+        if (!submitted) {
+          messages.push(`📋 ${settings.timesheetMessage}`);
+        }
+      }
+
+      if (messages.length > 0) {
+        this.showWarnings(messages);
+      }
+    },
+
+    showWarnings(messages) {
+      const banner = document.getElementById('announcement-banner');
+      if (!banner) return;
+
+      banner.innerHTML = `
+        <div style="background: #de350b; color: #fff; padding: 16px; text-align: center; font-weight: 600;">
+          ${messages.join(' | ')}
+        </div>
+      `;
     }
   };
 
@@ -227,7 +360,7 @@
       const hasErrors = issues.length > 0;
       const buttonClass = hasErrors ? 'jcp-btn-error' : 'jcp-btn-success';
       const icon = hasErrors ? '⚠️' : '✓';
-      const text = hasErrors ? `${issues.length} ${issues.length > 1 ? '' : ''}` : 'All Good';
+      const text = hasErrors ? `${issues.length} ${issues.length > 1 ? '' : ''}` : 'JCP: OK';
 
       validationButton.innerHTML = `
         <button class="aui-button ${buttonClass}" id="jcp-toolbar-btn">
@@ -322,6 +455,20 @@
   };
 
   // ============================================================================
+  // SETTINGS MANAGER
+  // ============================================================================
+  const SettingsManager = {
+    async load() {
+      return new Promise((resolve) => {
+        chrome.storage.sync.get(settings, (result) => {
+          settings = result;
+          resolve();
+        });
+      });
+    }
+  };
+
+  // ============================================================================
   // MAIN APPLICATION
   // ============================================================================
   const App = {
@@ -359,9 +506,11 @@
     },
 
     async init() {
+      await SettingsManager.load();
       await Utils.waitForElement('.aui-toolbar2-secondary');
       await this.run();
       this.setupObserver();
+      await TempoManager.checkAndApplyFadeEffect();
     }
   };
 

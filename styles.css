@@ -128,3 +128,48 @@
   border: 2px solid #ff8b00 !important;
   border-radius: 4px;
 }
+
+/* Tempo warning overlay */
+#tempo-warning {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  pointer-events: none;
+}
+
+.tempo-warning-content {
+  background: #de350b;
+  color: #fff;
+  padding: 40px 60px;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  animation: tempo-pulse 2s infinite;
+}
+
+.tempo-warning-content h2 {
+  margin: 0 0 16px 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.tempo-warning-content p {
+  margin: 0;
+  font-size: 18px;
+  opacity: 0.9;
+}
+
+@keyframes tempo-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
