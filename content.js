@@ -15,7 +15,9 @@
     TIME_LOGGED_IN_EPIC_STORY: 'Time log now allowed in Epic/Story (only in Sub-tasks and Bugs)',
     TIME_LOGGED_IN_TODO: 'Time logged but issue still in To Do status',
     SUBTASK_100_PERCENT_IN_PROGRESS: 'Sub-task 100% logged - still open',
-    STORY_NO_SUBTASKS: 'Story status beyond NEW but no Sub-tasks linked'
+    STORY_NO_SUBTASKS: 'Story status beyond NEW but no Sub-tasks linked',
+    RELEASED_VERSION_NOT_DONE: 'Fix Version is Released but issue status is not Done',
+    VERSION_PAST_DATE_NOT_RELEASED: 'Fix Version release date is in the past but not marked as Released'
   };
 
   const STATUS_TODO = ['to do', 'backlog', 'open'];
@@ -55,7 +57,7 @@
 
     async getSubtasks(parentKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -66,7 +68,7 @@
 
     async getEpicStories(epicKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10016,customfield_10026`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -113,6 +115,33 @@
 
     getStatus(fields) {
       return fields.status?.name?.toLowerCase() || '';
+    },
+
+    getStatusCategory(fields) {
+      return fields.status?.statusCategory?.key?.toLowerCase() || '';
+    },
+
+    getFixVersions(fields) {
+      return fields.fixVersions || [];
+    },
+
+    hasReleasedVersion(fields) {
+      const versions = this.getFixVersions(fields);
+      return versions.some(v => v.released === true);
+    },
+
+    hasPastDateUnreleasedVersion(fields) {
+      const versions = this.getFixVersions(fields);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      
+      return versions.some(v => {
+        if (v.released === true) return false;
+        if (!v.releaseDate) return false;
+        
+        const releaseDate = new Date(v.releaseDate);
+        return releaseDate < now;
+      });
     },
 
     hasDescription(fields) {
@@ -225,6 +254,19 @@
         if (originalEstimate > 0 && timeSpent >= originalEstimate) {
           issues.push(prefix + VALIDATION_RULES.SUBTASK_100_PERCENT_IN_PROGRESS);
         }
+      }
+
+      // Released version but not Done
+      if (DataExtractor.hasReleasedVersion(fields)) {
+        const statusCategory = DataExtractor.getStatusCategory(fields);
+        if (statusCategory !== 'done') {
+          issues.push(prefix + VALIDATION_RULES.RELEASED_VERSION_NOT_DONE);
+        }
+      }
+
+      // Past release date but not marked as Released
+      if (DataExtractor.hasPastDateUnreleasedVersion(fields)) {
+        issues.push(prefix + VALIDATION_RULES.VERSION_PAST_DATE_NOT_RELEASED);
       }
 
       return issues;
