@@ -17,7 +17,8 @@
     SUBTASK_100_PERCENT_IN_PROGRESS: 'Sub-task 100% logged - still open',
     STORY_NO_SUBTASKS: 'Story status beyond NEW but no Sub-tasks linked',
     RELEASED_VERSION_NOT_DONE: 'Fix Version is Released but issue status is not Done',
-    VERSION_PAST_DATE_NOT_RELEASED: 'Fix Version release date is in the past but not marked as Released'
+    VERSION_PAST_DATE_NOT_RELEASED: 'Fix Version release date is in the past but not marked as Released',
+    STORY_SHOULD_BE_CLOSED: 'Story not Done but all Sub-tasks and linked Bugs are closed'
   };
 
   const STATUS_TODO = ['to do', 'backlog', 'open'];
@@ -58,6 +59,17 @@
     async getSubtasks(parentKey) {
       try {
         const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.issues || [];
+      } catch (e) {
+        return [];
+      }
+    },
+
+    async getLinkedBugs(issueKey) {
+      try {
+        const response = await fetch(`/rest/api/2/search?jql=issue in linkedIssues(${issueKey}) AND type=Bug&fields=status`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -277,6 +289,7 @@
       const fields = apiData.fields;
       const issueType = DataExtractor.getIssueType(fields);
       const status = DataExtractor.getStatus(fields);
+      const statusCategory = DataExtractor.getStatusCategory(fields);
 
       // Validate current issue
       issues.push(...this.validateSingleIssue(fields));
@@ -290,7 +303,7 @@
         }
       }
 
-      // If Story, validate all subtasks
+      // If Story, validate all subtasks and check if should be closed
       if (issueType.includes('story') && !issueType.includes('sub')) {
         const subtasks = await JiraAPI.getSubtasks(issueKey);
         
@@ -302,6 +315,24 @@
         for (const subtask of subtasks) {
           const subtaskIssues = this.validateSingleIssue(subtask.fields, subtask.key);
           issues.push(...subtaskIssues);
+        }
+
+        // Check if Story should be closed (all subtasks and bugs are done)
+        if (statusCategory !== 'done' && subtasks.length > 0) {
+          const allSubtasksDone = subtasks.every(st => 
+            DataExtractor.getStatusCategory(st.fields) === 'done'
+          );
+
+          if (allSubtasksDone) {
+            const linkedBugs = await JiraAPI.getLinkedBugs(issueKey);
+            const allBugsDone = linkedBugs.length === 0 || linkedBugs.every(bug => 
+              DataExtractor.getStatusCategory(bug.fields) === 'done'
+            );
+
+            if (allBugsDone) {
+              issues.push(VALIDATION_RULES.STORY_SHOULD_BE_CLOSED);
+            }
+          }
         }
       }
 
