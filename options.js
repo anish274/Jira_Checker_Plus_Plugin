@@ -26,7 +26,7 @@ function loadSettings() {
 
 // Save settings
 function saveSettings() {
-  const settings = {
+  const newSettings = {
     descSubtask: document.getElementById('desc-subtask').checked,
     descEpic: document.getElementById('desc-epic').checked,
     descTask: document.getElementById('desc-task').checked,
@@ -37,8 +37,18 @@ function saveSettings() {
     timesheetMessage: document.getElementById('timesheet-message').value || DEFAULT_SETTINGS.timesheetMessage
   };
 
-  chrome.storage.sync.set(settings, () => {
-    showStatus('Settings saved successfully!');
+  chrome.storage.sync.get(DEFAULT_SETTINGS, (oldSettings) => {
+    const changes = [];
+    if (oldSettings.descSubtask !== newSettings.descSubtask) changes.push('Sub-task description');
+    if (oldSettings.descEpic !== newSettings.descEpic) changes.push('Epic description');
+    if (oldSettings.descTask !== newSettings.descTask) changes.push('Task description');
+    if (oldSettings.assigneeEpic !== newSettings.assigneeEpic) changes.push('Epic assignee');
+    if (oldSettings.priorityEpic !== newSettings.priorityEpic) changes.push('Epic priority');
+    if (oldSettings.weeklyHours !== newSettings.weeklyHours) changes.push('Weekly hours');
+    
+    chrome.storage.sync.set(newSettings, () => {
+      showStatus('Settings saved successfully!');
+    });
   });
 }
 
@@ -64,6 +74,24 @@ function showStatus(message) {
 // Event listeners
 document.getElementById('save-btn').addEventListener('click', saveSettings);
 document.getElementById('reset-btn').addEventListener('click', resetSettings);
+
+// Sidebar navigation
+document.querySelectorAll('.nav-item').forEach(item => {
+  if (!item.classList.contains('analytics-link')) {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const section = e.target.dataset.section;
+      
+      // Update active nav item
+      document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+      e.target.classList.add('active');
+      
+      // Show corresponding section
+      document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+      document.getElementById(section + '-section').classList.add('active');
+    });
+  }
+});
 
 // Load settings on page load
 loadSettings();

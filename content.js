@@ -1,6 +1,185 @@
-// Jira Checker Plus - Content Script v0.3
+// Jira Checker Plus - Content Script v0.95
 (function() {
   'use strict';
+
+  // ============================================================================
+  // LOGGER
+  // ============================================================================
+  const Logger = {
+    db: null,
+
+    async init() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('JiraCheckerPlus', 1);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          this.db = request.result;
+          resolve();
+        };
+        
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('logs')) {
+            const store = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
+            store.createIndex('issueKey', 'issueKey', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+            store.createIndex('type', 'type', { unique: false });
+          }
+          if (!db.objectStoreNames.contains('metrics')) {
+            const metricsStore = db.createObjectStore('metrics', { keyPath: 'id', autoIncrement: true });
+            metricsStore.createIndex('issueKey', 'issueKey', { unique: false });
+            metricsStore.createIndex('date', 'date', { unique: false });
+          }
+        };
+      });
+    },
+
+    async log(type, message, data = {}) {
+      if (!this.db) await this.init();
+      
+      const entry = {
+        timestamp: Date.now(),
+        type,
+        message,
+        issueKey: JiraAPI.getIssueKeyFromURL(),
+        url: window.location.href,
+        ...data
+      };
+      
+      const tx = this.db.transaction(['logs'], 'readwrite');
+      tx.objectStore('logs').add(entry);
+      
+      await this.cleanup();
+    },
+
+    async getPageLogs(issueKey) {
+      if (!this.db) await this.init();
+      
+      return new Promise((resolve) => {
+        const tx = this.db.transaction(['logs'], 'readonly');
+        const index = tx.objectStore('logs').index('issueKey');
+        const request = index.getAll(issueKey);
+        
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => resolve([]);
+      });
+    },
+
+    async getSettingsChanges(issueKey) {
+      const logs = await this.getPageLogs(issueKey);
+      return logs.filter(l => l.type === 'settings');
+    },
+
+    async cleanup() {
+      if (!this.db) return;
+      
+      const tx = this.db.transaction(['logs'], 'readwrite');
+      const store = tx.objectStore('logs');
+      const index = store.index('timestamp');
+      const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+      
+      const request = index.openCursor();
+      request.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          if (cursor.value.timestamp < cutoff) {
+            cursor.delete();
+          }
+          cursor.continue();
+        }
+      };
+    },
+
+    async trackMetrics(issueKey, validationIssues, fields) {
+      const issueType = fields.issuetype?.name || 'Unknown';
+      const status = fields.status?.name || 'Unknown';
+      
+      // Get previous scan from chrome.storage
+      const storageData = await new Promise(resolve => {
+        chrome.storage.sync.get(['jcpMetrics'], result => {
+          resolve(result.jcpMetrics || []);
+        });
+      });
+      
+      const prevScans = storageData.filter(m => m.issueKey === issueKey);
+      const prevScan = prevScans.length > 0 ? prevScans[prevScans.length - 1] : null;
+      const beforeErrors = prevScan ? prevScan.issueCount : null;
+      const afterErrors = validationIssues.length;
+      
+      const metric = {
+        issueKey,
+        issueType,
+        date: new Date().toISOString().split('T')[0],
+        timestamp: Date.now(),
+        issueCount: afterErrors,
+        beforeErrors,
+        afterErrors,
+        issues: validationIssues,
+        hasDescription: !!fields.description,
+        hasAssignee: !!fields.assignee,
+        hasPriority: !!fields.priority,
+        hasFinancialCategory: !!fields.customfield_10350,
+        hasStoryPoints: !!DataExtractor.getStoryPoints(fields),
+        hasOriginalEstimate: !!DataExtractor.getOriginalEstimate(fields),
+        hasTargetStart: !!DataExtractor.getTargetStart(fields),
+        hasTargetEnd: !!DataExtractor.getTargetEnd(fields),
+        status
+      };
+      
+      storageData.push(metric);
+      if (storageData.length > 500) storageData.shift();
+      
+      await new Promise(resolve => {
+        chrome.storage.sync.set({ jcpMetrics: storageData }, resolve);
+      });
+    },
+
+    async getAnalytics() {
+      if (!this.db) await this.init();
+      
+      return new Promise((resolve) => {
+        const tx = this.db.transaction(['metrics'], 'readonly');
+        const request = tx.objectStore('metrics').getAll();
+        
+        request.onsuccess = () => {
+          const data = request.result || [];
+          const stats = {
+            totalScans: data.length,
+            totalIssues: data.reduce((sum, m) => sum + m.issueCount, 0),
+            avgIssuesPerScan: 0,
+            issuesFixed: 0,
+            fieldCompletion: {
+              description: 0,
+              assignee: 0,
+              priority: 0,
+              financialCategory: 0
+            },
+            timeline: []
+          };
+          
+          if (data.length > 0) {
+            stats.avgIssuesPerScan = (stats.totalIssues / data.length).toFixed(2);
+            stats.fieldCompletion.description = ((data.filter(m => m.hasDescription).length / data.length) * 100).toFixed(1);
+            stats.fieldCompletion.assignee = ((data.filter(m => m.hasAssignee).length / data.length) * 100).toFixed(1);
+            stats.fieldCompletion.priority = ((data.filter(m => m.hasPriority).length / data.length) * 100).toFixed(1);
+            stats.fieldCompletion.financialCategory = ((data.filter(m => m.hasFinancialCategory).length / data.length) * 100).toFixed(1);
+            
+            const grouped = {};
+            data.forEach(m => {
+              if (!grouped[m.date]) grouped[m.date] = { date: m.date, issues: 0, scans: 0 };
+              grouped[m.date].issues += m.issueCount;
+              grouped[m.date].scans++;
+            });
+            stats.timeline = Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
+          }
+          
+          resolve(stats);
+        };
+        request.onerror = () => resolve(null);
+      });
+    }
+  };
 
   // ============================================================================
   // CONSTANTS
@@ -18,7 +197,9 @@
     STORY_NO_SUBTASKS: 'Story status beyond NEW but no Sub-tasks linked',
     RELEASED_VERSION_NOT_DONE: 'Fix Version is Released but issue status is not Done',
     VERSION_PAST_DATE_NOT_RELEASED: 'Fix Version release date is in the past but not marked as Released',
-    STORY_SHOULD_BE_CLOSED: 'Story not Done but all Sub-tasks and linked Bugs are closed'
+    STORY_SHOULD_BE_CLOSED: 'Story not Done but all Sub-tasks and linked Bugs are closed',
+    TARGET_START_OVERDUE: 'Target Start date has passed but issue still in To Do',
+    TARGET_END_OVERDUE: 'Target End date has passed but issue not completed'
   };
 
   const STATUS_TODO = ['to do', 'backlog', 'open'];
@@ -43,6 +224,20 @@
     timesheetMessage: 'Please submit your timesheet for this month!'
   };
 
+  // DOM Cache for performance
+  const DOMCache = {
+    toolbar: null,
+    getToolbar() {
+      if (!this.toolbar || !document.contains(this.toolbar)) {
+        this.toolbar = document.querySelector('.aui-toolbar2-secondary');
+      }
+      return this.toolbar;
+    },
+    clear() {
+      this.toolbar = null;
+    }
+  };
+
   // ============================================================================
   // API SERVICE
   // ============================================================================
@@ -58,7 +253,7 @@
 
     async getSubtasks(parentKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,customfield_16401,customfield_16402,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -80,7 +275,7 @@
 
     async getEpicStories(epicKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10016,customfield_10026,customfield_16401,customfield_16402,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -121,6 +316,15 @@
   // DATA EXTRACTORS
   // ============================================================================
   const DataExtractor = {
+    _todayStart: null,
+    getTodayStart() {
+      if (!this._todayStart) {
+        this._todayStart = new Date();
+        this._todayStart.setHours(0, 0, 0, 0);
+      }
+      return this._todayStart;
+    },
+
     getIssueType(fields) {
       return fields.issuetype?.name?.toLowerCase() || '';
     },
@@ -144,8 +348,7 @@
 
     hasPastDateUnreleasedVersion(fields) {
       const versions = this.getFixVersions(fields);
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      const now = this.getTodayStart();
       
       return versions.some(v => {
         if (v.released === true) return false;
@@ -186,6 +389,14 @@
 
     getAggregateTimeOriginalEstimate(fields) {
       return fields.aggregatetimeoriginalestimate || fields.timeoriginalestimate || 0;
+    },
+
+    getTargetStart(fields) {
+      return fields.customfield_16401;
+    },
+
+    getTargetEnd(fields) {
+      return fields.customfield_16402;
     }
   };
 
@@ -279,6 +490,31 @@
       // Past release date but not marked as Released
       if (DataExtractor.hasPastDateUnreleasedVersion(fields)) {
         issues.push(prefix + VALIDATION_RULES.VERSION_PAST_DATE_NOT_RELEASED);
+      }
+
+      // Target Start and Target End validation for Story and Sub-task only
+      if (issueType.includes('story') || issueType.includes('sub')) {
+        const statusCategory = DataExtractor.getStatusCategory(fields);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Target Start validation
+        const targetStart = DataExtractor.getTargetStart(fields);
+        if (targetStart && statusCategory === 'new') {
+          const startDate = new Date(targetStart);
+          if (startDate < today) {
+            issues.push(prefix + VALIDATION_RULES.TARGET_START_OVERDUE);
+          }
+        }
+
+        // Target End validation
+        const targetEnd = DataExtractor.getTargetEnd(fields);
+        if (targetEnd && (statusCategory === 'new' || statusCategory === 'indeterminate')) {
+          const endDate = new Date(targetEnd);
+          if (endDate < today) {
+            issues.push(prefix + VALIDATION_RULES.TARGET_END_OVERDUE);
+          }
+        }
       }
 
       return issues;
@@ -423,7 +659,7 @@
         validationButton.remove();
       }
 
-      const toolbar = document.querySelector('.aui-toolbar2-secondary');
+      const toolbar = DOMCache.getToolbar();
       if (!toolbar) return;
 
       validationButton = document.createElement('div');
@@ -491,6 +727,14 @@
       isPanelOpen = false;
     },
 
+    showNotification(message) {
+      const notif = document.createElement('div');
+      notif.style.cssText = 'position:fixed;top:60px;right:20px;background:#0052cc;color:#fff;padding:12px 20px;border-radius:4px;z-index:10000;box-shadow:0 2px 8px rgba(0,0,0,0.2);max-width:300px';
+      notif.textContent = message;
+      document.body.appendChild(notif);
+      setTimeout(() => notif.remove(), 5000);
+    },
+
     highlightFields(issues) {
       const fieldMap = {
         [VALIDATION_RULES.DESCRIPTION_MISSING]: '[data-testid="issue.views.field.description"]',
@@ -552,13 +796,24 @@
       if (currentIssueKey !== issueKey) {
         currentIssueKey = issueKey;
         UIManager.closePanel();
+        await Logger.log('visit', 'Page visited');
+        await this.showPageHistory(issueKey);
       }
 
       const apiData = await JiraAPI.getIssue(issueKey);
-      if (!apiData) return;
+      if (!apiData) {
+        await Logger.log('error', 'Failed to fetch issue data');
+        return;
+      }
 
       const issues = await ValidationEngine.validate(apiData, issueKey);
       currentIssues = issues;
+
+      if (issues.length > 0) {
+        await Logger.log('validation', `Found ${issues.length} issues`, { issues });
+      }
+      
+      await Logger.trackMetrics(issueKey, issues, apiData.fields);
 
       UIManager.createButton(issues);
       if (issues.length > 0) {
@@ -566,15 +821,31 @@
       }
     },
 
+    async showPageHistory(issueKey) {
+      const settingsChanges = await Logger.getSettingsChanges(issueKey);
+      if (settingsChanges.length > 0) {
+        const latest = settingsChanges[settingsChanges.length - 1];
+        const date = new Date(latest.timestamp).toLocaleString();
+        UIManager.showNotification(`Settings changed on ${date}: ${latest.message}`);
+      }
+    },
+
     setupObserver() {
+      let debounceTimer;
       const observer = new MutationObserver(() => {
-        setTimeout(() => this.run(), 500);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const newIssueKey = JiraAPI.getIssueKeyFromURL();
+          if (newIssueKey && newIssueKey !== currentIssueKey) {
+            this.run();
+          }
+        }, 1000);
       });
 
       observer.observe(document.body, {
         childList: true,
-        subtree: true,
-        attributes: true
+        subtree: false,
+        attributes: false
       });
     },
 
@@ -584,6 +855,12 @@
       await this.run();
       this.setupObserver();
       await TempoManager.checkAndApplyFadeEffect();
+      
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync' && changes) {
+          Logger.log('settings', 'Settings updated', { changes });
+        }
+      });
     }
   };
 

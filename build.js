@@ -13,38 +13,28 @@ if (fs.existsSync(BUILD_DIR)) {
 fs.mkdirSync(BUILD_DIR);
 
 // Files to process
-const jsFiles = ['content.js', 'options.js'];
-const copyFiles = ['manifest.json', 'options.html', 'options.css', 'styles.css', 'README.md'];
+const jsFiles = ['content.js', 'options.js', 'release.js', 'analytics.js'];
+const copyFiles = ['manifest.json', 'options.html', 'options.css', 'styles.css', 'analytics.html', 'README.md'];
 
-// Obfuscation options
+// Obfuscation options - Optimized for performance
 const obfuscationOptions = {
   compact: true,
-  controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.5,
-  deadCodeInjection: true,
-  deadCodeInjectionThreshold: 0.2,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
   debugProtection: false,
   disableConsoleOutput: false,
   identifierNamesGenerator: 'hexadecimal',
   log: false,
-  numbersToExpressions: true,
+  numbersToExpressions: false,
   renameGlobals: false,
-  selfDefending: true,
+  selfDefending: false,
   simplify: true,
-  splitStrings: true,
-  splitStringsChunkLength: 5,
+  splitStrings: false,
   stringArray: true,
   stringArrayCallsTransform: true,
   stringArrayEncoding: ['base64'],
-  stringArrayIndexShift: true,
-  stringArrayRotate: true,
-  stringArrayShuffle: true,
-  stringArrayWrappersCount: 2,
-  stringArrayWrappersChainedCalls: true,
-  stringArrayWrappersParametersMaxCount: 4,
-  stringArrayWrappersType: 'function',
-  stringArrayThreshold: 0.75,
-  transformObjectKeys: true,
+  stringArrayThreshold: 0.5,
+  transformObjectKeys: false,
   unicodeEscapeSequence: false
 };
 

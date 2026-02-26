@@ -1,10 +1,10 @@
 {
   "name": "jira-checker-plus",
-  "version": "0.6.0",
+  "version": "0.95.0",
   "description": "Jira validation extension with security",
   "scripts": {
     "build": "node build.js",
-    "release": "npm run build && node release.js"
+    "release": "npm run build && node package.js"
   },
   "devDependencies": {
     "javascript-obfuscator": "^4.1.0",

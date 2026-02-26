@@ -15,6 +15,8 @@ A Chrome/Edge browser extension that validates Jira issues and highlights missin
 ✅ **Time Logged in Epic/Story** - Only allowed in Sub-tasks and Bugs  
 ✅ **Time Logged but Status in To Do** - Time logged but still in To Do/Backlog  
 ✅ **Sub-task 100% Logged** - Sub-task fully logged but still open  
+✅ **Target Start Overdue** - Target Start date passed but Story/Sub-task still in To Do  
+✅ **Target End Overdue** - Target End date passed but Story/Sub-task not completed  
 
 ## Installation
 
@@ -39,6 +41,12 @@ A Chrome/Edge browser extension that validates Jira issues and highlights missin
 
 Right-click the extension icon → **Options** to configure:
 
+### Navigation Sidebar
+- **Optional Validations** - Configure optional validation rules
+- **Tempo Settings** - Set up timesheet reminders
+- **Mandatory Rules** - View all mandatory validation rules
+- **Analytics** - Access analytics dashboard
+
 ### Configurable Validations (Unchecked by default)
 - ☐ Require description for Sub-task
 - ☐ Require description for Epic
@@ -50,7 +58,38 @@ Right-click the extension icon → **Options** to configure:
 - Description mandatory for Story and Bug
 - Assignee mandatory for Story, Task, Sub-task, Bug
 - Priority mandatory for Story, Task, Sub-task, Bug
+- Target Start overdue validation for Story/Sub-task
+- Target End overdue validation for Story/Sub-task
 - All other validation rules
+
+## Analytics Dashboard
+
+Access comprehensive analytics through the settings page:
+
+### Key Metrics
+- Total scans performed
+- Total issues found
+- Average issues per scan
+- Rescan count (same page scanned multiple times)
+- Issues fixed through rescans
+
+### Field Completion Rates
+- Description completion
+- Story Points completion
+- Estimates completion
+- Financial Category completion
+- Target Start completion
+- Target End completion
+
+### Recent Scans Timeline
+- Shows last 50 scans with before/after error counts
+- Indicates first scan vs rescan
+- Color-coded by improvement status
+
+### Data Export & Confluence Sync
+- Export analytics data to CSV
+- Manual sync with Confluence page tables
+- Template provided for Confluence table structure
 
 ## Permissions
 
