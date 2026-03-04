@@ -16,6 +16,8 @@ body {
   color: #fff;
   padding: 30px 20px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar h1 {
@@ -29,6 +31,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
 }
 
 .nav-item {
@@ -53,7 +56,7 @@ body {
 }
 
 .nav-item.analytics-link {
-  margin-top: 20px;
+  margin-top: auto;
   background: #36b37e;
   color: #fff;
 }
@@ -67,6 +70,8 @@ body {
   padding: 30px;
   background: #fff;
   overflow-y: auto;
+  position: relative;
+  padding-bottom: 80px;
 }
 
 h2 {
@@ -218,10 +223,15 @@ button {
 }
 
 .credits {
-  margin-top: 40px;
-  padding-top: 20px;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  background: #fff;
+  padding: 20px 30px;
   border-top: 1px solid #dfe1e6;
   text-align: center;
+  z-index: 100;
 }
 
 .credits p {

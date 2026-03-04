@@ -40,7 +40,7 @@
 
     async getVersionIssues(versionId) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=fixVersion=${versionId}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,fixVersions&maxResults=1000`);
+        const response = await fetch(`/rest/api/2/search?jql=fixVersion=${versionId}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,fixVersions&maxResults=1000`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -51,7 +51,7 @@
 
     async getSubtasks(parentKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,fixVersions`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -91,7 +91,7 @@
     },
 
     getStoryPoints(fields) {
-      return fields.customfield_10016 || fields.customfield_10026;
+      return fields.customfield_10006;
     },
 
     getOriginalEstimate(fields) {

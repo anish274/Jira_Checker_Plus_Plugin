@@ -1,4 +1,4 @@
-// Jira Checker Plus - Content Script v0.95
+// Jira Checker Plus - Content Script v1.0
 (function() {
   'use strict';
 
@@ -95,44 +95,79 @@
       const issueType = fields.issuetype?.name || 'Unknown';
       const status = fields.status?.name || 'Unknown';
       
-      // Get previous scan from chrome.storage
-      const storageData = await new Promise(resolve => {
-        chrome.storage.sync.get(['jcpMetrics'], result => {
-          resolve(result.jcpMetrics || []);
+      try {
+        // Get previous scan from chrome.storage.local (higher quota)
+        const storageData = await new Promise((resolve) => {
+          try {
+            if (!chrome.storage || !chrome.storage.local) {
+              resolve([]);
+              return;
+            }
+            chrome.storage.local.get(['jcpMetrics'], result => {
+              if (chrome.runtime.lastError) {
+                resolve([]);
+              } else {
+                resolve(result.jcpMetrics || []);
+              }
+            });
+          } catch (error) {
+            resolve([]);
+          }
         });
-      });
-      
-      const prevScans = storageData.filter(m => m.issueKey === issueKey);
-      const prevScan = prevScans.length > 0 ? prevScans[prevScans.length - 1] : null;
-      const beforeErrors = prevScan ? prevScan.issueCount : null;
-      const afterErrors = validationIssues.length;
-      
-      const metric = {
-        issueKey,
-        issueType,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: Date.now(),
-        issueCount: afterErrors,
-        beforeErrors,
-        afterErrors,
-        issues: validationIssues,
-        hasDescription: !!fields.description,
-        hasAssignee: !!fields.assignee,
-        hasPriority: !!fields.priority,
-        hasFinancialCategory: !!fields.customfield_10350,
-        hasStoryPoints: !!DataExtractor.getStoryPoints(fields),
-        hasOriginalEstimate: !!DataExtractor.getOriginalEstimate(fields),
-        hasTargetStart: !!DataExtractor.getTargetStart(fields),
-        hasTargetEnd: !!DataExtractor.getTargetEnd(fields),
-        status
-      };
-      
-      storageData.push(metric);
-      if (storageData.length > 500) storageData.shift();
-      
-      await new Promise(resolve => {
-        chrome.storage.sync.set({ jcpMetrics: storageData }, resolve);
-      });
+        
+        const prevScans = storageData.filter(m => m.issueKey === issueKey);
+        const prevScan = prevScans.length > 0 ? prevScans[prevScans.length - 1] : null;
+        const beforeErrors = prevScan ? prevScan.afterErrors : null;
+        const afterErrors = validationIssues.length;
+        
+        console.log('JCP Metrics Debug:', {
+          issueKey,
+          prevScansCount: prevScans.length,
+          beforeErrors,
+          afterErrors,
+          willCreateEntry: beforeErrors === null || beforeErrors !== afterErrors
+        });
+        
+        // Only create new entry if error count changed or it's first scan
+        if (beforeErrors === null || beforeErrors !== afterErrors) {
+          const metric = {
+            issueKey,
+            issueType,
+            date: new Date().toISOString().split('T')[0],
+            timestamp: Date.now(),
+            issueCount: afterErrors,
+            beforeErrors,
+            afterErrors,
+            hasDescription: !!fields.description,
+            hasAssignee: !!fields.assignee,
+            hasPriority: !!fields.priority,
+            hasFinancialCategory: !!fields.customfield_10350,
+            hasStoryPoints: !!DataExtractor.getStoryPoints(fields),
+            hasOriginalEstimate: !!DataExtractor.getOriginalEstimate(fields),
+            hasTargetStart: !!DataExtractor.getTargetStart(fields),
+            hasTargetEnd: !!DataExtractor.getTargetEnd(fields),
+            status
+          };
+          
+          console.log('JCP: Creating new metric entry:', metric);
+          
+          storageData.push(metric);
+          if (storageData.length > 500) storageData.shift();
+          
+          await new Promise((resolve) => {
+            if (!chrome.storage || !chrome.storage.local) {
+              resolve();
+              return;
+            }
+            chrome.storage.local.set({ jcpMetrics: storageData }, () => {
+              console.log('JCP: Metric saved successfully. Total entries:', storageData.length);
+              resolve();
+            });
+          });
+        }
+      } catch (error) {
+        console.warn('JCP: Storage error, extension may have been reloaded:', error);
+      }
     },
 
     async getAnalytics() {
@@ -199,7 +234,8 @@
     VERSION_PAST_DATE_NOT_RELEASED: 'Fix Version release date is in the past but not marked as Released',
     STORY_SHOULD_BE_CLOSED: 'Story not Done but all Sub-tasks and linked Bugs are closed',
     TARGET_START_OVERDUE: 'Target Start date has passed but issue still in To Do',
-    TARGET_END_OVERDUE: 'Target End date has passed but issue not completed'
+    TARGET_END_OVERDUE: 'Target End date has passed but issue not completed',
+    IN_PROGRESS_NO_SPRINT: 'Issue is In Progress but not assigned to any Sprint'
   };
 
   const STATUS_TODO = ['to do', 'backlog', 'open'];
@@ -216,7 +252,7 @@
   let settings = {
     descSubtask: false,
     descEpic: false,
-    descTask: false,
+    descTask: true,
     assigneeEpic: false,
     priorityEpic: false,
     weeklyHours: 40,
@@ -244,7 +280,7 @@
   const JiraAPI = {
     async getIssue(issueKey) {
       try {
-        const response = await fetch(`/rest/api/2/issue/${issueKey}`);
+        const response = await fetch(`/rest/api/2/issue/${issueKey}?fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,customfield_16401,customfield_16402,fixVersions,sprint,customfield_10020`);
         return response.ok ? await response.json() : null;
       } catch (e) {
         return null;
@@ -253,7 +289,7 @@
 
     async getSubtasks(parentKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10016,customfield_10026,customfield_16401,customfield_16402,fixVersions`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${parentKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,customfield_16401,customfield_16402,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -275,7 +311,7 @@
 
     async getEpicStories(epicKey) {
       try {
-        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10016,customfield_10026,customfield_16401,customfield_16402,fixVersions`);
+        const response = await fetch(`/rest/api/2/search?jql=parent=${epicKey} OR "Epic Link"=${epicKey}&fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,customfield_10350,customfield_10006,customfield_16401,customfield_16402,fixVersions`);
         if (!response.ok) return [];
         const data = await response.json();
         return data.issues || [];
@@ -376,7 +412,7 @@
     },
 
     getStoryPoints(fields) {
-      return fields.customfield_10016 || fields.customfield_10026;
+      return fields.customfield_10006;
     },
 
     getOriginalEstimate(fields) {
@@ -397,6 +433,10 @@
 
     getTargetEnd(fields) {
       return fields.customfield_16402;
+    },
+
+    getSprint(fields) {
+      return fields.sprint || fields.customfield_10020;
     }
   };
 
@@ -514,6 +554,17 @@
           if (endDate < today) {
             issues.push(prefix + VALIDATION_RULES.TARGET_END_OVERDUE);
           }
+        }
+      }
+
+      // Sprint validation for Story, Task, Bug in progress
+      if ((issueType.includes('story') || issueType.includes('task') || issueType.includes('bug')) && !issueType.includes('sub')) {
+        const statusCategory = DataExtractor.getStatusCategory(fields);
+        const sprint = DataExtractor.getSprint(fields);
+        const isBlocked = status.includes('blocked');
+        
+        if (statusCategory === 'indeterminate' && !sprint && !isBlocked) {
+          issues.push(prefix + VALIDATION_RULES.IN_PROGRESS_NO_SPRINT);
         }
       }
 
@@ -683,6 +734,10 @@
       validationButton.querySelector('#jcp-toolbar-btn').addEventListener('click', () => {
         if (hasErrors) {
           this.togglePanel(issues);
+        } else {
+          // Manual rescan when no errors
+          App.run();
+          this.showNotification('Rescanning...');
         }
       });
     },
@@ -714,8 +769,14 @@
       document.body.appendChild(validationPanel);
       isPanelOpen = true;
 
-      validationPanel.querySelector('.jcp-close').addEventListener('click', () => {
+      validationPanel.querySelector('.jcp-close').addEventListener('click', (e) => {
+        e.stopPropagation();
         this.closePanel();
+      });
+      
+      // Prevent panel from closing when clicking inside it
+      validationPanel.addEventListener('click', (e) => {
+        e.stopPropagation();
       });
     },
 
@@ -777,10 +838,24 @@
   const SettingsManager = {
     async load() {
       return new Promise((resolve) => {
-        chrome.storage.sync.get(settings, (result) => {
-          settings = result;
+        try {
+          if (!chrome.storage || !chrome.storage.sync) {
+            resolve();
+            return;
+          }
+          chrome.storage.sync.get(settings, (result) => {
+            if (chrome.runtime.lastError) {
+              console.warn('JCP: Settings load error:', chrome.runtime.lastError);
+              resolve();
+            } else {
+              settings = result;
+              resolve();
+            }
+          });
+        } catch (error) {
+          console.warn('JCP: Settings load error:', error);
           resolve();
-        });
+        }
       });
     }
   };
@@ -793,11 +868,19 @@
       const issueKey = JiraAPI.getIssueKeyFromURL();
       if (!issueKey) return;
 
+      // Don't close panel if it's already open and we're on the same issue
+      const isSameIssue = currentIssueKey === issueKey;
+      if (!isSameIssue) {
+        UIManager.closePanel();
+      }
+      
       if (currentIssueKey !== issueKey) {
         currentIssueKey = issueKey;
-        UIManager.closePanel();
         await Logger.log('visit', 'Page visited');
         await this.showPageHistory(issueKey);
+      } else {
+        // Same page visited again - this is a rescan
+        await Logger.log('rescan', 'Page rescanned');
       }
 
       const apiData = await JiraAPI.getIssue(issueKey);
@@ -813,7 +896,11 @@
         await Logger.log('validation', `Found ${issues.length} issues`, { issues });
       }
       
-      await Logger.trackMetrics(issueKey, issues, apiData.fields);
+      try {
+        await Logger.trackMetrics(issueKey, issues, apiData.fields);
+      } catch (error) {
+        console.warn('JCP: Metrics tracking failed:', error);
+      }
 
       UIManager.createButton(issues);
       if (issues.length > 0) {
@@ -822,30 +909,44 @@
     },
 
     async showPageHistory(issueKey) {
-      const settingsChanges = await Logger.getSettingsChanges(issueKey);
-      if (settingsChanges.length > 0) {
-        const latest = settingsChanges[settingsChanges.length - 1];
-        const date = new Date(latest.timestamp).toLocaleString();
-        UIManager.showNotification(`Settings changed on ${date}: ${latest.message}`);
-      }
+      // Removed settings change notification - was too intrusive
     },
 
     setupObserver() {
       let debounceTimer;
+      let lastRunTime = 0;
+      const MIN_RUN_INTERVAL = 2000; // Minimum 2 seconds between runs
+      
+      const runWithThrottle = () => {
+        const now = Date.now();
+        if (now - lastRunTime < MIN_RUN_INTERVAL) {
+          return; // Skip if too soon
+        }
+        lastRunTime = now;
+        this.run();
+      };
+      
       const observer = new MutationObserver(() => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           const newIssueKey = JiraAPI.getIssueKeyFromURL();
-          if (newIssueKey && newIssueKey !== currentIssueKey) {
-            this.run();
+          if (newIssueKey && (newIssueKey !== currentIssueKey || Date.now() - lastRunTime > MIN_RUN_INTERVAL)) {
+            runWithThrottle();
           }
-        }, 1000);
+        }, 1500);
       });
 
       observer.observe(document.body, {
         childList: true,
-        subtree: false,
+        subtree: false, // Reduced to prevent excessive triggers
         attributes: false
+      });
+      
+      // Listen for page visibility changes (when user switches tabs and comes back)
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          setTimeout(() => runWithThrottle(), 1000);
+        }
       });
     },
 
@@ -856,11 +957,7 @@
       this.setupObserver();
       await TempoManager.checkAndApplyFadeEffect();
       
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && changes) {
-          Logger.log('settings', 'Settings updated', { changes });
-        }
-      });
+      // Removed storage change listener - was causing unnecessary notifications
     }
   };
 

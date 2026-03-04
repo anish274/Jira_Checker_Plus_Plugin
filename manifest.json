@@ -1,15 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Jira Checker Plus",
-  "version": "0.95.0",
+  "version": "1.0.0",
   "description": "Validates Jira issues and highlights missing or inconsistent information",
   "permissions": ["activeTab", "storage"],
-  "host_permissions": ["*://*.atlassian.net/*", "*://*/jira/*", "*://*/browse/*"],
+  "host_permissions": ["*://*.atlassian.net/*", "*://*/jira/*", "*://*/browse/*", "*://*/wiki/*", "*://confluence.tenerity.com/*"],
   "update_url": "https://raw.githubusercontent.com/anish274/Jira_Checker_Plus_Plugin/main/updates.xml",
   "options_page": "options.html",
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/jira-28.png",
+      "48": "icons/jira-56.png"
+    },
+    "default_title": "Jira Checker Plus"
   },
   "content_scripts": [
     {

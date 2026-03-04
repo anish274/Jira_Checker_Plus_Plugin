@@ -2,7 +2,7 @@
 const DEFAULT_SETTINGS = {
   descSubtask: false,
   descEpic: false,
-  descTask: false,
+  descTask: true,
   assigneeEpic: false,
   priorityEpic: false,
   weeklyHours: 40,

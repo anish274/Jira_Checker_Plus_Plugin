@@ -14,7 +14,7 @@ fs.mkdirSync(BUILD_DIR);
 
 // Files to process
 const jsFiles = ['content.js', 'options.js', 'release.js', 'analytics.js'];
-const copyFiles = ['manifest.json', 'options.html', 'options.css', 'styles.css', 'analytics.html', 'README.md'];
+const copyFiles = ['manifest.json', 'options.html', 'options.css', 'styles.css', 'analytics.html', 'popup.html', 'README.md'];
 
 // Obfuscation options - Optimized for performance
 const obfuscationOptions = {
