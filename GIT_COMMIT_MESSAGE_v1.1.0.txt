@@ -1,0 +1,114 @@
+Release v1.1.0 - Analytics Storage Refactor & Enhanced Confluence Sync
+
+## 🎯 Major Features
+
+### Analytics Storage Architecture Overhaul
+- **Permanent Overview Metrics**: Separated analytics into `jcpOverview` (permanent) and `jcpScans` (deletable)
+- **Data Preservation**: Overview metrics (Total Scans, Total Issues, Avg Issues/Scan, Rescan Count, Issues Fixed, Field Completion Rates) are never deleted
+- **Automatic Migration**: Seamless migration from old `jcpMetrics` structure to new dual-storage system
+
+### Enhanced Confluence Integration
+- **Smart Sync Logic**: Only updates Confluence rows where After Error Count has changed
+- **Sync Date & Time Column**: Added timestamp column to track when data was last synced
+- **Detailed Sync Reporting**: Shows "X created, Y updated" message after sync
+- **Selective Column Updates**: For existing rows, only updates Last Scanned, After Error Count, and Sync Date & Time columns
+
+### Recent Scans Management
+- **Project-Wise Tabs**: Scans grouped by project with tab navigation
+- **Sync + Delete Feature**: New button to sync data to Confluence and then delete Recent Scans while preserving Overview data
+- **Improved UI Layout**: Action buttons repositioned beside "Recent Scans" heading for better UX
+
+## ✨ Validation Enhancements
+
+### Status-Based Validation Rules
+- **Cancelled/Rejected Exclusion**: Issues with Cancelled or Rejected status are now excluded from all validations
+- **Status-Aware Validations**: Story Points, Sprint, and "Story should be closed" validations only apply when status is beyond New/Defined
+- **Smarter Validation Logic**: Reduces false positives for issues in early workflow stages
+
+## 🐛 Bug Fixes
+
+### Analytics Dashboard
+- **Fixed Sync Status Display**: Error/success messages now appear beside buttons instead of at bottom of page
+- **Fixed Recent Scans Deletion**: Sync + Delete button now properly clears Recent Scans data
+- **Fixed Storage Migration**: Prevents re-migration of old data after deletion
+
+### Confluence Sync
+- **Fixed Column Order**: Corrected Before/After Error Count column order in Confluence table
+- **Fixed Variable Scope**: Resolved "Cannot read properties of undefined" error in sync logic
+- **Fixed Update Logic**: Only updates rows where data has actually changed
+
+## 🔧 Technical Improvements
+
+### Storage Management
+- **Dual Storage Keys**: `jcpOverview` for permanent metrics, `jcpScans` for deletable scan history
+- **Storage Cleanup**: Removes old `jcpMetrics` during migration to prevent conflicts
+- **Incremental Updates**: Overview metrics updated incrementally on each scan
+
+### Code Quality
+- **Removed Debug Logs**: Cleaned up console.log statements from production code
+- **Improved Error Handling**: Better error messages for Confluence sync failures
+- **Optimized Data Processing**: More efficient data mapping and filtering
+
+## 📊 Analytics Features
+
+### Overview Metrics (Permanent)
+- Total Scans
+- Total Issues Found
+- Average Issues per Scan
+- Rescan Count
+- Issues Fixed
+- Field Completion Rates (Description, Story Points, Estimates, Financial Category, Target Start, Target End)
+
+### Recent Scans (Deletable)
+- Timeline view with project tabs
+- Before/After error counts
+- First scan vs Rescan indicators
+- Export to CSV
+- Sync to Confluence
+- Sync + Delete functionality
+
+## 🎨 UI/UX Improvements
+
+### Analytics Dashboard
+- Buttons repositioned for better accessibility
+- Status messages appear contextually near action buttons
+- Project tabs for organized scan viewing
+- Confirmation dialog for destructive actions
+
+### Confluence Sync
+- Real-time sync progress indicator
+- Detailed success/failure messages
+- Link to view updated Confluence page
+- Smart update logic to minimize unnecessary changes
+
+## 📝 Files Changed
+
+### Core Files
+- `content.js` - Updated validation logic, storage structure, and status exclusions
+- `analytics.js` - Refactored storage management, enhanced Confluence sync, added project tabs
+- `analytics.html` - Repositioned buttons, added project tabs container
+- `manifest.json` - Version bump to 1.1.0
+- `package.json` - Version bump to 1.1.0
+
+## 🔄 Migration Notes
+
+Users upgrading from v1.0.0 to v1.1.0:
+- Old `jcpMetrics` data automatically migrated to new structure
+- Overview metrics calculated from historical data
+- All existing scans preserved in `jcpScans`
+- No manual intervention required
+
+## 🚀 Breaking Changes
+
+None - Fully backward compatible with v1.0.0
+
+## 📦 Dependencies
+
+No new dependencies added
+
+---
+
+**Previous Version**: 1.0.0  
+**Current Version**: 1.1.0  
+**Release Date**: 2024  
+**Compatibility**: Chrome 88+, Edge 88+, Jira Cloud

@@ -110,13 +110,17 @@
       </div>
 
       <div class="section" id="scans-section">
-        <h2>Recent Scans</h2>
-        <div class="timeline" id="timeline"></div>
-        <div class="actions" style="margin-top: 20px;">
-          <button class="btn" id="export-btn">📥 Export Data (CSV)</button>
-          <button class="btn secondary" id="sync-confluence-btn">🔗 Sync to Confluence</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 style="margin: 0;">Recent Scans</h2>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn" id="export-btn">📥 Export Data</button>
+            <button class="btn secondary" id="sync-confluence-btn">🔗 Sync to Confluence</button>
+            <button class="btn" id="sync-delete-btn" style="background: #ff5630;">🔗 Sync + Delete Scans</button>
+          </div>
         </div>
-        <div id="sync-status" style="margin-top: 10px; font-size: 14px;"></div>
+        <div id="sync-status" style="margin-bottom: 10px; font-size: 14px;"></div>
+        <div id="project-tabs" style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;"></div>
+        <div class="timeline" id="timeline"></div>
       </div>
 
       <div class="section" id="settings-section">

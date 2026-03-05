@@ -1,84 +1,89 @@
 async function loadAnalytics() {
   try {
-    // First try to migrate data from sync to local storage
     await migrateStorageData();
     
-    const data = await new Promise(resolve => {
-      chrome.storage.local.get(['jcpMetrics'], result => {
-        resolve(result.jcpMetrics || []);
+    // Load permanent overview metrics
+    const overview = await new Promise(resolve => {
+      chrome.storage.local.get(['jcpOverview'], result => {
+        resolve(result.jcpOverview || { totalScans: 0, totalIssues: 0, rescanCount: 0, issuesFixed: 0, fieldStats: {} });
       });
     });
     
-    console.log('Analytics: Total entries loaded from storage:', data.length);
-    console.log('Analytics: Last 3 entries:', data.slice(-3));
+    // Load recent scans (deletable)
+    const scans = await new Promise(resolve => {
+      chrome.storage.local.get(['jcpScans'], result => {
+        resolve(result.jcpScans || []);
+      });
+    });
     
-    if (data.length === 0) {
-      document.getElementById('total-scans').textContent = '0';
-      document.getElementById('total-issues').textContent = '0';
-      document.getElementById('avg-issues').textContent = '0';
-      document.getElementById('rescan-count').textContent = '0';
-      document.getElementById('issues-fixed').textContent = '0';
-      document.getElementById('timeline').innerHTML = '<div class="no-data">No data available yet. Visit a Jira issue page to start tracking.</div>';
+    // Display overview metrics (permanent data)
+    document.getElementById('total-scans').textContent = overview.totalScans || 0;
+    document.getElementById('total-issues').textContent = overview.totalIssues || 0;
+    document.getElementById('avg-issues').textContent = overview.totalScans > 0 ? (overview.totalIssues / overview.totalScans).toFixed(1) : '0';
+    document.getElementById('rescan-count').textContent = overview.rescanCount || 0;
+    document.getElementById('issues-fixed').textContent = overview.issuesFixed || 0;
+
+    // Field completion rates from overview
+    const stats = overview.fieldStats || {};
+    updateProgressBar('desc', stats.descPct || 0);
+    updateProgressBar('story-points', stats.storyPointsPct || 0);
+    updateProgressBar('estimates', stats.estimatesPct || 0);
+    updateProgressBar('financial', stats.financialPct || 0);
+    updateProgressBar('target-start', stats.targetStartPct || 0);
+    updateProgressBar('target-end', stats.targetEndPct || 0);
+
+    // Display recent scans timeline
+    if (scans.length === 0) {
+      document.getElementById('timeline').innerHTML = '<div class="no-data">No recent scans. Visit a Jira issue page to start tracking.</div>';
       return;
     }
-
-    const totalIssues = data.reduce((sum, m) => sum + m.issueCount, 0);
-    const avgIssues = (totalIssues / data.length).toFixed(1);
     
-    // Calculate rescans (same issue key scanned multiple times)
-    const issueKeys = {};
-    let rescanCount = 0;
-    let issuesFixed = 0;
-    
-    data.forEach(m => {
-      if (issueKeys[m.issueKey]) {
-        rescanCount++;
-        // Check if issues were fixed in rescan
-        if (m.beforeErrors !== null && m.afterErrors < m.beforeErrors) {
-          issuesFixed += (m.beforeErrors - m.afterErrors);
-        }
-      } else {
-        issueKeys[m.issueKey] = true;
-      }
+    // Group scans by project
+    const projectGroups = {};
+    scans.forEach(scan => {
+      const project = scan.issueKey.split('-')[0];
+      if (!projectGroups[project]) projectGroups[project] = [];
+      projectGroups[project].push(scan);
     });
-
-    document.getElementById('total-scans').textContent = data.length;
-    document.getElementById('total-issues').textContent = totalIssues;
-    document.getElementById('avg-issues').textContent = avgIssues;
-    document.getElementById('rescan-count').textContent = rescanCount;
-    document.getElementById('issues-fixed').textContent = issuesFixed;
-
-    // Field completion rates - updated fields
-    const descPct = ((data.filter(m => m.hasDescription).length / data.length) * 100).toFixed(1);
-    const storyPointsPct = ((data.filter(m => m.hasStoryPoints).length / data.length) * 100).toFixed(1);
-    const estimatesPct = ((data.filter(m => m.hasOriginalEstimate).length / data.length) * 100).toFixed(1);
-    const financialPct = ((data.filter(m => m.hasFinancialCategory).length / data.length) * 100).toFixed(1);
-    const targetStartPct = ((data.filter(m => m.hasTargetStart).length / data.length) * 100).toFixed(1);
-    const targetEndPct = ((data.filter(m => m.hasTargetEnd).length / data.length) * 100).toFixed(1);
-
-    updateProgressBar('desc', descPct);
-    updateProgressBar('story-points', storyPointsPct);
-    updateProgressBar('estimates', estimatesPct);
-    updateProgressBar('financial', financialPct);
-    updateProgressBar('target-start', targetStartPct);
-    updateProgressBar('target-end', targetEndPct);
-
-    // Timeline with rescan info - show all entries
-    const timeline = data.sort((a, b) => b.timestamp - a.timestamp);
-    console.log('Timeline entries to display:', timeline.length);
-    const timelineHTML = timeline.map(t => {
-      const date = new Date(t.timestamp).toLocaleString();
-      const beforeAfter = t.beforeErrors !== null ? `${t.beforeErrors} → ${t.afterErrors}` : `${t.afterErrors}`;
-      const rescanInfo = t.beforeErrors !== null ? 'Rescan' : 'First scan';
-      const color = t.beforeErrors !== null && t.afterErrors < t.beforeErrors ? '#36b37e' : (t.afterErrors > 0 ? '#ff5630' : '#6b778c');
-      return `<div class="timeline-item">
-        <span><strong>${t.issueKey}</strong> (${t.issueType})</span>
-        <span style="color:${color};font-weight:600">${beforeAfter} errors</span>
-        <span style="font-size:12px;color:#6b778c">${rescanInfo}</span>
-        <span style="font-size:12px;color:#6b778c">${date}</span>
-      </div>`;
-    }).join('');
-    document.getElementById('timeline').innerHTML = timelineHTML;
+    
+    const projects = Object.keys(projectGroups).sort();
+    let activeProject = projects[0];
+    
+    // Create project tabs
+    const tabsHTML = projects.map(proj => 
+      `<div class="project-tab ${proj === activeProject ? 'active' : ''}" data-project="${proj}">${proj} (${projectGroups[proj].length})</div>`
+    ).join('');
+    document.getElementById('project-tabs').innerHTML = tabsHTML;
+    
+    // Function to display scans for a project
+    const displayProject = (project) => {
+      const timeline = projectGroups[project].sort((a, b) => b.timestamp - a.timestamp);
+      const timelineHTML = timeline.map(t => {
+        const date = new Date(t.timestamp).toLocaleString();
+        const beforeAfter = t.beforeErrors !== null ? `${t.beforeErrors} → ${t.afterErrors}` : `${t.afterErrors}`;
+        const rescanInfo = t.beforeErrors !== null ? 'Rescan' : 'First scan';
+        const color = t.beforeErrors !== null && t.afterErrors < t.beforeErrors ? '#36b37e' : (t.afterErrors > 0 ? '#ff5630' : '#6b778c');
+        return `<div class="timeline-item">
+          <span><strong>${t.issueKey}</strong> (${t.issueType})</span>
+          <span style="color:${color};font-weight:600">${beforeAfter} errors</span>
+          <span style="font-size:12px;color:#6b778c">${rescanInfo}</span>
+          <span style="font-size:12px;color:#6b778c">${date}</span>
+        </div>`;
+      }).join('');
+      document.getElementById('timeline').innerHTML = timelineHTML;
+    };
+    
+    // Display initial project
+    displayProject(activeProject);
+    
+    // Add tab click handlers
+    document.querySelectorAll('.project-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        document.querySelectorAll('.project-tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        displayProject(e.target.dataset.project);
+      });
+    });
   } catch (error) {
     console.error('Analytics load error:', error);
     document.getElementById('timeline').innerHTML = '<div class="no-data">Error loading analytics.</div>';
@@ -93,13 +98,13 @@ function updateProgressBar(field, percentage) {
 
 document.getElementById('export-btn').addEventListener('click', async () => {
   const data = await new Promise(resolve => {
-    chrome.storage.local.get(['jcpMetrics'], result => {
-      resolve(result.jcpMetrics || []);
+    chrome.storage.local.get(['jcpScans'], result => {
+      resolve(result.jcpScans || []);
     });
   });
 
   const csv = [
-    ['Timestamp', 'Issue Key', 'Issue Type', 'Before Errors', 'After Errors', 'Has Description', 'Has Story Points', 'Has Estimates', 'Has Financial Category', 'Has Target Start', 'Has Target End', 'Status'],
+    ['Timestamp', 'Issue Key', 'Issue Type', 'Before Errors', 'After Errors', 'Has Description', 'Has Story Points', 'Has Estimates', 'Has Financial Category', 'Has Target Start', 'Has Target End', 'Status', 'Export Date & Time'],
     ...data.map(m => [
       new Date(m.timestamp).toISOString(),
       m.issueKey,
@@ -112,7 +117,8 @@ document.getElementById('export-btn').addEventListener('click', async () => {
       m.hasFinancialCategory ? 'Yes' : 'No',
       m.hasTargetStart ? 'Yes' : 'No',
       m.hasTargetEnd ? 'Yes' : 'No',
-      m.status
+      m.status,
+      new Date().toLocaleString()
     ])
   ].map(row => row.join(',')).join('\n');
 
@@ -157,8 +163,8 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
     
     // Get analytics data
     const data = await new Promise(resolve => {
-      chrome.storage.local.get(['jcpMetrics'], result => {
-        resolve(result.jcpMetrics || []);
+      chrome.storage.local.get(['jcpScans'], result => {
+        resolve(result.jcpScans || []);
       });
     });
     
@@ -185,6 +191,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
     const dataMap = new Map();
     // Sort by timestamp to ensure we process entries in chronological order
     const sortedData = data.sort((a, b) => a.timestamp - b.timestamp);
+    const syncDateTime = new Date().toLocaleString();
     sortedData.forEach(m => {
       // For first scans, put error count in Before column; for rescans, use actual before/after
       const isFirstScan = m.beforeErrors === null;
@@ -198,13 +205,16 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
         hasEstimates: m.hasOriginalEstimate ? 'Yes' : 'No',
         hasFinancialCategory: m.hasFinancialCategory ? 'Yes' : 'No',
         hasTargetStart: m.hasTargetStart ? 'Yes' : 'No',
-        hasTargetEnd: m.hasTargetEnd ? 'Yes' : 'No'
+        hasTargetEnd: m.hasTargetEnd ? 'Yes' : 'No',
+        syncDateTime: syncDateTime
       });
     });
     
     // Check if table exists
     const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/i;
     const tableMatch = content.match(tableRegex);
+    let newRows = [];
+    let updatedCount = 0;
     
     if (tableMatch) {
       // Update existing table
@@ -213,7 +223,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
       let updatedTableContent = tableContent;
       let updatedIssues = new Set();
       
-      // Update existing rows
+      // Update existing rows - only if After Error Count changed
       updatedTableContent = updatedTableContent.replace(rowRegex, (match, rowContent) => {
         const cellRegex = /<td[^>]*>([^<]*)<\/td>/gi;
         const cells = [];
@@ -227,25 +237,34 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
           const issueData = dataMap.get(issueKey);
           updatedIssues.add(issueKey);
           
-          return `<tr>
-            <td>${issueKey}</td>
-            <td>${issueData.issueType}</td>
-            <td>${issueData.lastScanned}</td>
-            <td>${issueData.beforeErrorCount}</td>
-            <td>${issueData.afterErrorCount}</td>
-            <td>${issueData.hasDescription}</td>
-            <td>${issueData.hasStoryPoints}</td>
-            <td>${issueData.hasEstimates}</td>
-            <td>${issueData.hasFinancialCategory}</td>
-            <td>${issueData.hasTargetStart}</td>
-            <td>${issueData.hasTargetEnd}</td>
-          </tr>`;
+          // Check if After Error Count changed (column 4)
+          const existingAfterError = cells[4];
+          const newAfterError = String(issueData.afterErrorCount);
+          
+          if (existingAfterError !== newAfterError) {
+            updatedCount++;
+            // Only update Last Scanned (col 2), After Error Count (col 4), and Sync Date & Time (col 11)
+            return `<tr>
+              <td>${cells[0]}</td>
+              <td>${cells[1] || issueData.issueType}</td>
+              <td>${issueData.lastScanned}</td>
+              <td>${cells[3] || issueData.beforeErrorCount}</td>
+              <td>${issueData.afterErrorCount}</td>
+              <td>${cells[5] || issueData.hasDescription}</td>
+              <td>${cells[6] || issueData.hasStoryPoints}</td>
+              <td>${cells[7] || issueData.hasEstimates}</td>
+              <td>${cells[8] || issueData.hasFinancialCategory}</td>
+              <td>${cells[9] || issueData.hasTargetStart}</td>
+              <td>${cells[10] || issueData.hasTargetEnd}</td>
+              <td>${issueData.syncDateTime}</td>
+            </tr>`;
+          }
         }
-        return match; // Keep original row if not in our data
+        return match; // Keep original row unchanged
       });
       
       // Add new rows for issues not already in table
-      const newRows = [];
+      newRows = [];
       dataMap.forEach((issueData, issueKey) => {
         if (!updatedIssues.has(issueKey)) {
           newRows.push(`<tr>
@@ -260,6 +279,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
             <td>${issueData.hasFinancialCategory}</td>
             <td>${issueData.hasTargetStart}</td>
             <td>${issueData.hasTargetEnd}</td>
+            <td>${issueData.syncDateTime}</td>
           </tr>`);
         }
       });
@@ -285,6 +305,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
           <td>${issueData.hasFinancialCategory}</td>
           <td>${issueData.hasTargetStart}</td>
           <td>${issueData.hasTargetEnd}</td>
+          <td>${issueData.syncDateTime}</td>
         </tr>`;
       }).join('');
       
@@ -304,6 +325,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
             <th>Financial Category</th>
             <th>Target Start</th>
             <th>Target End</th>
+            <th>Sync Date & Time</th>
           </tr>
         </thead>
         <tbody>
@@ -312,6 +334,8 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
       </table>`;
       
       content += tableHtml;
+      newRows = Array.from(dataMap.entries());
+      updatedCount = 0;
     }
     
     // Update page
@@ -344,7 +368,7 @@ document.getElementById('sync-confluence-btn').addEventListener('click', async (
     }
     
     statusDiv.innerHTML = `
-      <div style="color: #36b37e; margin-bottom: 10px;">✓ Successfully synced ${dataMap.size} records to Confluence!</div>
+      <div style="color: #36b37e; margin-bottom: 10px;">✓ Successfully synced to Confluence! ${newRows.length} created, ${updatedCount} updated</div>
       <div style="font-size: 12px; color: #5e6c84;">
         <a href="${confluenceUrl}" target="_blank">View updated page</a>
       </div>
@@ -376,28 +400,92 @@ document.getElementById('save-confluence-btn').addEventListener('click', () => {
 
 loadAnalytics();
 
+// Sync + Delete button
+document.getElementById('sync-delete-btn').addEventListener('click', async () => {
+  const statusDiv = document.getElementById('sync-status');
+  
+  if (!confirm('This will sync data to Confluence and then delete all Recent Scans. Continue?')) {
+    return;
+  }
+  
+  // First trigger sync
+  document.getElementById('sync-confluence-btn').click();
+  statusDiv.innerHTML = '<span style="color: #0052cc;">Syncing to Confluence before deletion...</span>';
+  
+  // Wait for sync to complete
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // Delete recent scans AND old jcpMetrics to prevent re-migration
+  await new Promise(resolve => {
+    chrome.storage.local.remove(['jcpScans', 'jcpMetrics'], resolve);
+  });
+  
+  // Set empty scans array
+  await new Promise(resolve => {
+    chrome.storage.local.set({ jcpScans: [] }, resolve);
+  });
+  
+  statusDiv.innerHTML = '<div style="color: #36b37e;">✓ Synced and Recent scans deleted (Overview data preserved)</div>';
+  
+  // Force reload by clearing timeline and project tabs
+  document.getElementById('timeline').innerHTML = '<div class="no-data">No recent scans. Visit a Jira issue page to start tracking.</div>';
+  document.getElementById('project-tabs').innerHTML = '';
+});
+
 // Migration function to move data from sync to local storage
 async function migrateStorageData() {
   try {
-    // Check if local storage already has data
-    const localData = await new Promise(resolve => {
-      chrome.storage.local.get(['jcpMetrics'], result => {
-        resolve(result.jcpMetrics || []);
+    const localScans = await new Promise(resolve => {
+      chrome.storage.local.get(['jcpScans'], result => {
+        resolve(result.jcpScans || []);
       });
     });
     
-    // If local storage is empty, try to migrate from sync storage
-    if (localData.length === 0) {
-      const syncData = await new Promise(resolve => {
-        chrome.storage.sync.get(['jcpMetrics'], result => {
+    // Migrate old jcpMetrics to new structure
+    if (localScans.length === 0) {
+      const oldData = await new Promise(resolve => {
+        chrome.storage.local.get(['jcpMetrics'], result => {
           resolve(result.jcpMetrics || []);
         });
       });
       
-      if (syncData.length > 0) {
-        console.log('JCP: Migrating', syncData.length, 'entries from sync to local storage');
+      if (oldData.length > 0) {
+        console.log('JCP: Migrating to new storage structure');
+        
+        // Calculate overview metrics from old data
+        const totalIssues = oldData.reduce((sum, m) => sum + m.issueCount, 0);
+        const issueKeys = {};
+        let rescanCount = 0;
+        let issuesFixed = 0;
+        
+        oldData.forEach(m => {
+          if (issueKeys[m.issueKey]) {
+            rescanCount++;
+            if (m.beforeErrors !== null && m.afterErrors < m.beforeErrors) {
+              issuesFixed += (m.beforeErrors - m.afterErrors);
+            }
+          } else {
+            issueKeys[m.issueKey] = true;
+          }
+        });
+        
+        const descPct = ((oldData.filter(m => m.hasDescription).length / oldData.length) * 100).toFixed(1);
+        const storyPointsPct = ((oldData.filter(m => m.hasStoryPoints).length / oldData.length) * 100).toFixed(1);
+        const estimatesPct = ((oldData.filter(m => m.hasOriginalEstimate).length / oldData.length) * 100).toFixed(1);
+        const financialPct = ((oldData.filter(m => m.hasFinancialCategory).length / oldData.length) * 100).toFixed(1);
+        const targetStartPct = ((oldData.filter(m => m.hasTargetStart).length / oldData.length) * 100).toFixed(1);
+        const targetEndPct = ((oldData.filter(m => m.hasTargetEnd).length / oldData.length) * 100).toFixed(1);
+        
+        const overview = {
+          totalScans: oldData.length,
+          totalIssues,
+          rescanCount,
+          issuesFixed,
+          fieldStats: { descPct, storyPointsPct, estimatesPct, financialPct, targetStartPct, targetEndPct }
+        };
+        
         await new Promise(resolve => {
-          chrome.storage.local.set({ jcpMetrics: syncData }, resolve);
+          chrome.storage.local.set({ jcpOverview: overview, jcpScans: oldData }, resolve);
         });
       }
     }

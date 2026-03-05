@@ -96,77 +96,89 @@
       const status = fields.status?.name || 'Unknown';
       
       try {
-        // Get previous scan from chrome.storage.local (higher quota)
+        // Get previous scans and overview
         const storageData = await new Promise((resolve) => {
           try {
             if (!chrome.storage || !chrome.storage.local) {
-              resolve([]);
+              resolve({ scans: [], overview: null });
               return;
             }
-            chrome.storage.local.get(['jcpMetrics'], result => {
+            chrome.storage.local.get(['jcpScans', 'jcpOverview'], result => {
               if (chrome.runtime.lastError) {
-                resolve([]);
+                resolve({ scans: [], overview: null });
               } else {
-                resolve(result.jcpMetrics || []);
+                resolve({ scans: result.jcpScans || [], overview: result.jcpOverview || null });
               }
             });
           } catch (error) {
-            resolve([]);
+            resolve({ scans: [], overview: null });
           }
         });
         
-        const prevScans = storageData.filter(m => m.issueKey === issueKey);
+        const scans = storageData.scans;
+        const prevScans = scans.filter(m => m.issueKey === issueKey);
         const prevScan = prevScans.length > 0 ? prevScans[prevScans.length - 1] : null;
         const beforeErrors = prevScan ? prevScan.afterErrors : null;
         const afterErrors = validationIssues.length;
         
-        console.log('JCP Metrics Debug:', {
-          issueKey,
-          prevScansCount: prevScans.length,
-          beforeErrors,
-          afterErrors,
-          willCreateEntry: beforeErrors === null || beforeErrors !== afterErrors
-        });
-        
-        // Only create new entry if error count changed or it's first scan
+        // Always create entry if error count changed OR if it's a rescan (to track all activity)
         if (beforeErrors === null || beforeErrors !== afterErrors) {
-          const metric = {
+          const scanEntry = {
             issueKey,
             issueType,
-            date: new Date().toISOString().split('T')[0],
             timestamp: Date.now(),
             issueCount: afterErrors,
             beforeErrors,
             afterErrors,
             hasDescription: !!fields.description,
-            hasAssignee: !!fields.assignee,
-            hasPriority: !!fields.priority,
-            hasFinancialCategory: !!fields.customfield_10350,
             hasStoryPoints: !!DataExtractor.getStoryPoints(fields),
             hasOriginalEstimate: !!DataExtractor.getOriginalEstimate(fields),
+            hasFinancialCategory: !!fields.customfield_10350,
             hasTargetStart: !!DataExtractor.getTargetStart(fields),
             hasTargetEnd: !!DataExtractor.getTargetEnd(fields),
             status
           };
           
-          console.log('JCP: Creating new metric entry:', metric);
+          scans.push(scanEntry);
+          if (scans.length > 500) scans.shift();
           
-          storageData.push(metric);
-          if (storageData.length > 500) storageData.shift();
+          // Update permanent overview metrics
+          let overview = storageData.overview || { totalScans: 0, totalIssues: 0, rescanCount: 0, issuesFixed: 0, fieldStats: {} };
+          
+          overview.totalScans++;
+          overview.totalIssues += afterErrors;
+          
+          if (beforeErrors !== null) {
+            overview.rescanCount++;
+            if (afterErrors < beforeErrors) {
+              overview.issuesFixed += (beforeErrors - afterErrors);
+            }
+          }
+          
+          // Recalculate field stats from all scans
+          const totalScans = scans.length;
+          overview.fieldStats = {
+            descPct: ((scans.filter(m => m.hasDescription).length / totalScans) * 100).toFixed(1),
+            storyPointsPct: ((scans.filter(m => m.hasStoryPoints).length / totalScans) * 100).toFixed(1),
+            estimatesPct: ((scans.filter(m => m.hasOriginalEstimate).length / totalScans) * 100).toFixed(1),
+            financialPct: ((scans.filter(m => m.hasFinancialCategory).length / totalScans) * 100).toFixed(1),
+            targetStartPct: ((scans.filter(m => m.hasTargetStart).length / totalScans) * 100).toFixed(1),
+            targetEndPct: ((scans.filter(m => m.hasTargetEnd).length / totalScans) * 100).toFixed(1)
+          };
           
           await new Promise((resolve) => {
             if (!chrome.storage || !chrome.storage.local) {
               resolve();
               return;
             }
-            chrome.storage.local.set({ jcpMetrics: storageData }, () => {
-              console.log('JCP: Metric saved successfully. Total entries:', storageData.length);
+            chrome.storage.local.set({ jcpScans: scans, jcpOverview: overview }, () => {
+              console.log('JCP: Metrics saved. Scans:', scans.length, 'Overview:', overview);
               resolve();
             });
           });
         }
       } catch (error) {
-        console.warn('JCP: Storage error, extension may have been reloaded:', error);
+        console.warn('JCP: Storage error:', error);
       }
     },
 
@@ -450,6 +462,11 @@
       const status = DataExtractor.getStatus(fields);
       const prefix = issueKey ? `[${issueKey}] ` : '';
 
+      // Skip validation for Cancelled or Rejected issues
+      if (status.includes('cancel') || status.includes('reject')) {
+        return issues;
+      }
+
       // Description validation with settings
       if (!DataExtractor.hasDescription(fields)) {
         const isStoryOrBug = issueType.includes('story') || issueType.includes('bug');
@@ -490,7 +507,8 @@
       }
 
       if (issueType.includes('story') && !issueType.includes('sub')) {
-        if (!status.includes('new') && !DataExtractor.getStoryPoints(fields)) {
+        // Only validate if status is beyond New/Defined
+        if (!status.includes('new') && !status.includes('defined') && !DataExtractor.getStoryPoints(fields)) {
           issues.push(prefix + VALIDATION_RULES.STORY_POINTS_MISSING);
         }
       }
@@ -557,13 +575,13 @@
         }
       }
 
-      // Sprint validation for Story, Task, Bug in progress
+      // Sprint validation for Story, Task, Bug in progress - only if beyond New/Defined
       if ((issueType.includes('story') || issueType.includes('task') || issueType.includes('bug')) && !issueType.includes('sub')) {
         const statusCategory = DataExtractor.getStatusCategory(fields);
         const sprint = DataExtractor.getSprint(fields);
         const isBlocked = status.includes('blocked');
         
-        if (statusCategory === 'indeterminate' && !sprint && !isBlocked) {
+        if (statusCategory === 'indeterminate' && !sprint && !isBlocked && !status.includes('new') && !status.includes('defined')) {
           issues.push(prefix + VALIDATION_RULES.IN_PROGRESS_NO_SPRINT);
         }
       }
@@ -604,8 +622,8 @@
           issues.push(...subtaskIssues);
         }
 
-        // Check if Story should be closed (all subtasks and bugs are done)
-        if (statusCategory !== 'done' && subtasks.length > 0) {
+        // Check if Story should be closed (all subtasks and bugs are done) - only if beyond New/Defined
+        if (statusCategory !== 'done' && subtasks.length > 0 && !status.includes('new') && !status.includes('defined')) {
           const allSubtasksDone = subtasks.every(st => 
             DataExtractor.getStatusCategory(st.fields) === 'done'
           );
