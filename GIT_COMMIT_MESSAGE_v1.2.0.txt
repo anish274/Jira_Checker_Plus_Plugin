@@ -1,0 +1,16 @@
+Release v1.2.0 - Fix Sprint Field Detection
+
+## Bug Fix
+- **Fixed Sprint Validation**: Added support for `customfield_10004` as Sprint field
+- Sprint detection now checks three fields: `sprint`, `customfield_10020`, and `customfield_10004`
+- Resolves false positive "Issue is In Progress but not assigned to any Sprint" error
+
+## Files Changed
+- `content.js` - Added `customfield_10004` to API fetch and `getSprint()` function
+- `manifest.json` - Version bump to 1.2.0
+- `package.json` - Version bump to 1.2.0
+
+---
+
+**Previous Version**: 1.1.0  
+**Current Version**: 1.2.0

@@ -292,7 +292,7 @@
   const JiraAPI = {
     async getIssue(issueKey) {
       try {
-        const response = await fetch(`/rest/api/2/issue/${issueKey}?fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,customfield_16401,customfield_16402,fixVersions,sprint,customfield_10020`);
+        const response = await fetch(`/rest/api/2/issue/${issueKey}?fields=issuetype,status,assignee,priority,description,timeoriginalestimate,timespent,aggregatetimeoriginalestimate,customfield_10350,customfield_10006,customfield_16401,customfield_16402,fixVersions,sprint,customfield_10020,customfield_10004`);
         return response.ok ? await response.json() : null;
       } catch (e) {
         return null;
@@ -448,7 +448,7 @@
     },
 
     getSprint(fields) {
-      return fields.sprint || fields.customfield_10020;
+      return fields.sprint || fields.customfield_10020 || fields.customfield_10004;
     }
   };
 
